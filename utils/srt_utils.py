@@ -117,17 +117,38 @@ def parse_sensevoice_timestamps(timestamp_data) -> List[Tuple[float, float]]:
     """Parse SenseVoice timestamp format to start/end time pairs"""
     timestamps = []
 
-    if isinstance(timestamp_data, list):
-        for i in range(0, len(timestamp_data), 2):
-            if i + 1 < len(timestamp_data):
-                start_time = timestamp_data[i] / 1000.0  # Convert ms to seconds
-                end_time = timestamp_data[i + 1] / 1000.0
-                timestamps.append((start_time, end_time))
-            else:
-                # Handle odd number of timestamps
-                start_time = timestamp_data[i] / 1000.0
-                end_time = start_time + 1.0  # Default 1 second duration
-                timestamps.append((start_time, end_time))
+    try:
+        if isinstance(timestamp_data, list) and len(timestamp_data) > 0:
+            # Handle different timestamp formats
+            if all(isinstance(x, (int, float)) for x in timestamp_data):
+                # Format: [start_ms, end_ms, start_ms, end_ms, ...]
+                for i in range(0, len(timestamp_data), 2):
+                    if i + 1 < len(timestamp_data):
+                        start_time = float(timestamp_data[i]) / 1000.0  # Convert ms to seconds
+                        end_time = float(timestamp_data[i + 1]) / 1000.0
+                        # Validate timestamps
+                        if start_time >= 0 and end_time > start_time:
+                            timestamps.append((start_time, end_time))
+                    else:
+                        # Handle odd number of timestamps
+                        start_time = float(timestamp_data[i]) / 1000.0
+                        end_time = start_time + 1.0  # Default 1 second duration
+                        if start_time >= 0:
+                            timestamps.append((start_time, end_time))
+
+            elif isinstance(timestamp_data[0], (list, tuple)):
+                # Format: [(start_ms, end_ms), (start_ms, end_ms), ...]
+                for timestamp_pair in timestamp_data:
+                    if len(timestamp_pair) >= 2:
+                        start_time = float(timestamp_pair[0]) / 1000.0
+                        end_time = float(timestamp_pair[1]) / 1000.0
+                        if start_time >= 0 and end_time > start_time:
+                            timestamps.append((start_time, end_time))
+
+    except (ValueError, TypeError, IndexError) as e:
+        print(f"Error parsing timestamp data: {e}")
+        # Return empty list to trigger fallback behavior
+        timestamps = []
 
     return timestamps
 
@@ -150,46 +171,66 @@ def create_srt_from_sensevoice_result(result, output_path: str,
         # Extract text and timestamps from result
         if isinstance(result, list) and len(result) > 0:
             res_data = result[0]
-            if isinstance(res_data, list) and len(res_data) > 0:
+            if isinstance(res_data, dict):
+                # Handle direct dictionary result format
+                text = res_data.get("text", "")
+                timestamp_data = res_data.get("timestamp", [])
+            elif isinstance(res_data, list) and len(res_data) > 0:
+                # Handle nested list result format
                 res_item = res_data[0]
-
                 text = res_item.get("text", "")
                 timestamp_data = res_item.get("timestamp", [])
-
-                if not text or not timestamp_data:
-                    print("No text or timestamp data found in result")
-                    return False
-
-                # For now, create a single subtitle for the entire text
-                # This can be enhanced to split by sentences or segments
-                clean_text = clean_text_for_srt(text)
-                timestamps = parse_sensevoice_timestamps(timestamp_data)
-
-                if not timestamps:
-                    # Create default timestamp if none available
-                    timestamps = [(0.0, 5.0)]  # Default 5-second subtitle
-
-                # Use the first and last timestamp for the full text
-                start_time = timestamps[0][0] if timestamps else 0.0
-                end_time = timestamps[-1][1] if timestamps else 5.0
-
-                srt_content = generate_srt_content(
-                    [(start_time, end_time)],
-                    [clean_text],
-                    max_chars,
-                    max_lines
-                )
-
-                return save_srt_file(srt_content, output_path)
             else:
-                print("Invalid result format: expected list with data")
+                print("Invalid result format: unexpected data structure")
                 return False
+
+            if not text:
+                print("No text found in result")
+                return False
+
+            # Clean the text for SRT
+            clean_text = clean_text_for_srt(text)
+            if not clean_text:
+                print("Text is empty after cleaning")
+                return False
+
+            # Handle timestamp data
+            timestamps = []
+            if timestamp_data:
+                try:
+                    timestamps = parse_sensevoice_timestamps(timestamp_data)
+                except Exception as e:
+                    print(f"Error parsing timestamps: {e}")
+
+            # Fallback to default timestamps if parsing failed or no timestamps
+            if not timestamps:
+                print("No valid timestamps found, using default timing")
+                # Estimate duration based on text length (roughly 150 words per minute)
+                words = len(clean_text.split())
+                estimated_duration = max(2.0, words / 2.5)  # Minimum 2 seconds
+                timestamps = [(0.0, estimated_duration)]
+
+            # Use the first and last timestamp for the full text
+            start_time = timestamps[0][0] if timestamps else 0.0
+            end_time = timestamps[-1][1] if len(timestamps) > 0 else start_time + 5.0
+
+            srt_content = generate_srt_content(
+                [(start_time, end_time)],
+                [clean_text],
+                max_chars,
+                max_lines
+            )
+
+            return save_srt_file(srt_content, output_path)
+
         else:
-            print("Invalid result format: expected list")
+            print("Invalid result format: expected list with data")
             return False
 
     except Exception as e:
         print(f"Error creating SRT file: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

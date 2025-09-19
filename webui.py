@@ -388,8 +388,22 @@ def model_inference(input_wav, language, enable_timestamps=False, generate_srt=F
 		inference_params["output_timestamp"] = True
 		print("[SPEECH RECOGNITION] Generating transcription with timestamps")
 
-	result = model.generate(**inference_params)
-	print(result)
+	try:
+		result = model.generate(**inference_params)
+		print(result)
+	except Exception as e:
+		print(f"[SPEECH RECOGNITION] Error with timestamp generation: {e}")
+		if enable_timestamps:
+			print("[SPEECH RECOGNITION] Retrying without timestamps due to error")
+			# Fallback: retry without timestamps
+			fallback_params = inference_params.copy()
+			fallback_params.pop("output_timestamp", None)
+			result = model.generate(**fallback_params)
+			print(f"[SPEECH RECOGNITION] Fallback successful: {result}")
+			# Update status to indicate timestamps failed
+			enable_timestamps = False
+		else:
+			raise e
 
 	# Extract text
 	text = result[0]["text"]
@@ -398,37 +412,39 @@ def model_inference(input_wav, language, enable_timestamps=False, generate_srt=F
 
 	# Generate SRT file if requested
 	srt_status = ""
-	if generate_srt and enable_timestamps:
-		try:
-			# Determine output directory for SRT
-			if srt_output_dir and srt_output_dir.strip():
-				output_dir = srt_output_dir.strip()
-			else:
-				output_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+	if generate_srt:
+		if enable_timestamps:
+			try:
+				# Determine output directory for SRT
+				if srt_output_dir and srt_output_dir.strip():
+					output_dir = srt_output_dir.strip()
+				else:
+					output_dir = os.path.join(os.path.expanduser("~"), "Downloads")
 
-			# Ensure directory exists
-			if not os.path.exists(output_dir):
-				os.makedirs(output_dir)
+				# Ensure directory exists
+				if not os.path.exists(output_dir):
+					os.makedirs(output_dir)
 
-			# Generate SRT filename
-			import time
-			timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-			srt_filename = f"transcription_{timestamp_str}.srt"
-			srt_path = os.path.join(output_dir, srt_filename)
+				# Generate SRT filename
+				import time
+				timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+				srt_filename = f"transcription_{timestamp_str}.srt"
+				srt_path = os.path.join(output_dir, srt_filename)
 
-			# Create SRT file
-			if create_srt_from_sensevoice_result(result, srt_path):
-				srt_status = f"\n\nSRT file saved to: {srt_path}"
-				print(f"[SPEECH RECOGNITION] SRT file created: {srt_path}")
-			else:
-				srt_status = "\n\nFailed to generate SRT file"
-				print("[SPEECH RECOGNITION] Failed to create SRT file")
+				# Create SRT file
+				if create_srt_from_sensevoice_result(result, srt_path):
+					srt_status = f"\n\nSRT file saved to: {srt_path}"
+					print(f"[SPEECH RECOGNITION] SRT file created: {srt_path}")
+				else:
+					srt_status = "\n\nFailed to generate SRT file"
+					print("[SPEECH RECOGNITION] Failed to create SRT file")
 
-		except Exception as e:
-			srt_status = f"\n\nError generating SRT: {str(e)}"
-			print(f"[SPEECH RECOGNITION] SRT generation error: {e}")
-	elif generate_srt and not enable_timestamps:
-		srt_status = "\n\nNote: Enable timestamps to generate SRT files"
+			except Exception as e:
+				srt_status = f"\n\nError generating SRT: {str(e)}"
+				print(f"[SPEECH RECOGNITION] SRT generation error: {e}")
+		else:
+			srt_status = "\n\nNote: Timestamps failed or disabled - cannot generate SRT files"
+			print("[SPEECH RECOGNITION] SRT generation skipped - no timestamps available")
 
 	# Format final output
 	final_text = text + srt_status
