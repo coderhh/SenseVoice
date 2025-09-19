@@ -45,7 +45,7 @@ Online Demo:
 
 <a name="What's News"></a>
 # What's New 🔥
-- **2024/9: Enhanced WebUI with Audio Extraction**: Added dedicated Audio Extraction tab with video-to-audio conversion capabilities. Supports all major video formats (MP4, AVI, MOV, MKV, etc.) with user-selectable output directories and automatic cleanup of temporary files.
+- **2025/9: Enhanced WebUI with Audio Extraction**: Added dedicated Audio Extraction tab with video-to-audio conversion capabilities. Supports all major video formats (MP4, AVI, MOV, MKV, etc.) with user-selectable output directories and automatic cleanup of temporary files.
 - 2024/11: Add support for timestamp based on the CTC alignment.
 - 2024/7: Added Export Features for [ONNX](./demo_onnx.py) and [libtorch](./demo_libtorch.py), as well as Python Version Runtimes: [funasr-onnx-0.4.0](https://pypi.org/project/funasr-onnx/), [funasr-torch-0.1.1](https://pypi.org/project/funasr-torch/)
 - 2024/7: The [SenseVoice-Small](https://www.modelscope.cn/models/iic/SenseVoiceSmall) voice understanding model is open-sourced, which offers high-precision multilingual speech recognition, emotion recognition, and audio event detection capabilities for Mandarin, Cantonese, English, Japanese, and Korean and leads to exceptionally low inference latency.
