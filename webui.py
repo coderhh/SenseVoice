@@ -6,6 +6,10 @@ import base64
 import io
 import gradio as gr
 import re
+import tempfile
+import subprocess
+import tkinter as tk
+from tkinter import filedialog
 
 import numpy as np
 import torch
@@ -138,18 +142,222 @@ def format_str_v3(s):
 	new_s = new_s.replace("The.", " ")
 	return new_s.strip()
 
+def browse_for_folder():
+	"""Open a folder selection dialog and return the selected path"""
+	try:
+		# Create a root window and hide it
+		root = tk.Tk()
+		root.withdraw()
+		root.attributes('-topmost', True)
+
+		# Open directory selection dialog
+		directory = filedialog.askdirectory(
+			title="Select Output Directory for Extracted Audio",
+			initialdir=os.path.expanduser("~")
+		)
+
+		# Clean up the root window
+		root.destroy()
+
+		return directory if directory else ""
+	except Exception as e:
+		print(f"[AUDIO EXTRACTION TAB] Error opening folder browser: {e}")
+		return ""
+
+def check_ffmpeg_available():
+	"""Check if ffmpeg is available in the system"""
+	try:
+		result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+		return result.returncode == 0
+	except FileNotFoundError:
+		return False
+
+def is_video_file(file_path):
+	"""Check if the file is a video file based on extension"""
+	if not isinstance(file_path, str):
+		return False
+	video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v']
+	return any(file_path.lower().endswith(ext) for ext in video_extensions)
+
+def extract_audio_from_video(video_path, output_path=None):
+	"""Extract audio from video file using ffmpeg"""
+	if not check_ffmpeg_available():
+		raise Exception("FFmpeg is not available. Please install FFmpeg to extract audio from video files.")
+
+	if not os.path.exists(video_path):
+		raise Exception(f"Video file not found: {video_path}")
+
+	# If no output path specified, create temporary file
+	if output_path is None:
+		temp_audio = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+		temp_audio.close()
+		audio_output_path = temp_audio.name
+	else:
+		audio_output_path = output_path
+
+	try:
+		# Use ffmpeg to extract audio
+		cmd = [
+			'ffmpeg', '-i', video_path,
+			'-acodec', 'pcm_s16le',
+			'-ac', '1',  # mono
+			'-ar', '16000',  # 16kHz sample rate
+			'-y',  # overwrite output file
+			audio_output_path
+		]
+
+		result = subprocess.run(cmd, capture_output=True, text=True)
+		if result.returncode != 0:
+			raise Exception(f"FFmpeg error: {result.stderr}")
+
+		return audio_output_path
+	except Exception as e:
+		# Clean up file if extraction failed and it was a temp file
+		if output_path is None and os.path.exists(audio_output_path):
+			try:
+				os.unlink(audio_output_path)
+			except:
+				pass
+		raise Exception(f"Error extracting audio from video: {e}")
+
+def extract_audio_only(video_file, output_directory=""):
+	"""Extract audio from video file and save to specified directory"""
+	print(f"[AUDIO EXTRACTION TAB] Starting audio extraction...")
+
+	if video_file is None:
+		return None, "Please upload a video file"
+
+	try:
+		# Get the file path
+		video_path = video_file.name if hasattr(video_file, 'name') else video_file
+		print(f"[AUDIO EXTRACTION TAB] Processing video file: {video_path}")
+
+		if not is_video_file(video_path):
+			return None, "Please upload a valid video file (MP4, AVI, MOV, MKV, FLV, WMV, WebM, M4V)"
+
+		# Get original filename from gradio file object or path
+		if hasattr(video_file, 'orig_name') and video_file.orig_name:
+			original_filename = video_file.orig_name
+			print(f"[AUDIO EXTRACTION TAB] Original filename: {original_filename}")
+		else:
+			original_filename = os.path.basename(video_path)
+			print(f"[AUDIO EXTRACTION TAB] Using temp filename: {original_filename}")
+
+		# Determine output directory
+		if output_directory and output_directory.strip():
+			output_dir = output_directory.strip()
+			print(f"[AUDIO EXTRACTION TAB] Using specified path: {output_dir}")
+		else:
+			# Default to Downloads folder if no directory specified
+			output_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+			print(f"[AUDIO EXTRACTION TAB] Using default Downloads folder: {output_dir}")
+
+		# Create directory if it doesn't exist
+		if not os.path.exists(output_dir):
+			try:
+				os.makedirs(output_dir)
+				print(f"[AUDIO EXTRACTION TAB] Created directory: {output_dir}")
+			except Exception as e:
+				print(f"[AUDIO EXTRACTION TAB] Failed to create directory: {e}")
+				return None, f"Failed to create directory: {output_dir}. Error: {str(e)}"
+
+		print(f"[AUDIO EXTRACTION TAB] Using output directory: {output_dir}")
+
+		video_name = os.path.splitext(original_filename)[0]
+		audio_output_path = os.path.join(output_dir, f"{video_name}.wav")
+
+		# Handle filename conflicts
+		counter = 1
+		base_audio_path = audio_output_path
+		while os.path.exists(audio_output_path):
+			audio_output_path = os.path.join(output_dir, f"{video_name}_{counter}.wav")
+			counter += 1
+
+		print(f"[AUDIO EXTRACTION TAB] Saving audio to: {audio_output_path}")
+
+		# Extract audio to the specified location
+		extract_audio_from_video(video_path, audio_output_path)
+
+		print(f"[AUDIO EXTRACTION TAB] Audio extraction completed successfully")
+
+		# Clean up temporary video file
+		try:
+			if os.path.exists(video_path):
+				print(f"[AUDIO EXTRACTION TAB] Cleaning up temporary video file: {video_path}")
+				os.unlink(video_path)
+				print(f"[AUDIO EXTRACTION TAB] Temporary video file deleted successfully")
+		except Exception as cleanup_error:
+			print(f"[AUDIO EXTRACTION TAB] Failed to delete temporary video file: {cleanup_error}")
+
+		return None, f"Audio successfully extracted and saved to: {audio_output_path}"
+
+	except Exception as e:
+		print(f"[AUDIO EXTRACTION TAB] Error: {str(e)}")
+		# Clean up temporary video file even if extraction failed
+		try:
+			if 'video_path' in locals() and os.path.exists(video_path):
+				print(f"[AUDIO EXTRACTION TAB] Cleaning up temporary video file after error: {video_path}")
+				os.unlink(video_path)
+		except Exception as cleanup_error:
+			print(f"[AUDIO EXTRACTION TAB] Failed to delete temporary video file after error: {cleanup_error}")
+		return None, f"Error extracting audio: {str(e)}"
+
 def model_inference(input_wav, language, fs=16000):
 	# task_abbr = {"Speech Recognition": "ASR", "Rich Text Transcription": ("ASR", "AED", "SER")}
 	language_abbr = {"auto": "auto", "zh": "zh", "en": "en", "yue": "yue", "ja": "ja", "ko": "ko",
 					 "nospeech": "nospeech"}
-	
+
 	# task = "Speech Recognition" if task is None else task
 	language = "auto" if len(language) < 1 else language
 	selected_language = language_abbr[language]
 	# selected_task = task_abbr.get(task)
-	
+
 	# print(f"input_wav: {type(input_wav)}, {input_wav[1].shape}, {input_wav}")
-	
+
+	# Track extracted audio file for cleanup
+	extracted_audio_path = None
+
+	# Handle video files by extracting audio first
+	if hasattr(input_wav, 'name') and is_video_file(input_wav.name):
+		try:
+			# Get the original video file path (Gradio temp path)
+			video_path = input_wav.name
+			print(f"[SPEECH RECOGNITION] Processing video file: {video_path}")
+
+			# Get original video file info to determine where to save audio
+			# For Gradio uploads, we'll use the temp directory but with better naming
+			video_name = os.path.splitext(os.path.basename(video_path))[0]
+			video_dir = os.path.dirname(video_path)
+
+			# If the video_path looks like a Gradio temp file, try to get original name
+			if hasattr(input_wav, 'orig_name') and input_wav.orig_name:
+				original_name = os.path.splitext(input_wav.orig_name)[0]
+				audio_output_path = os.path.join(video_dir, f"{original_name}.wav")
+				print(f"[SPEECH RECOGNITION] Using original name: {input_wav.orig_name}")
+			else:
+				audio_output_path = os.path.join(video_dir, f"{video_name}.wav")
+				print(f"[SPEECH RECOGNITION] Using temp name: {video_name}")
+
+			extracted_audio_path = audio_output_path
+			print(f"[SPEECH RECOGNITION] Extracting audio to: {audio_output_path}")
+
+			# Extract audio to the specified location
+			extract_audio_from_video(video_path, audio_output_path)
+			print(f"[SPEECH RECOGNITION] Audio extraction completed")
+
+			# Load the extracted audio file
+			input_wav, fs = librosa.load(audio_output_path, sr=16000)
+			print(f"[SPEECH RECOGNITION] Audio loaded for processing")
+
+		except Exception as e:
+			# Clean up extracted audio file if it was created
+			if extracted_audio_path and os.path.exists(extracted_audio_path):
+				try:
+					os.unlink(extracted_audio_path)
+				except:
+					pass
+			return f"Error processing video file: {str(e)}"
+
 	if isinstance(input_wav, tuple):
 		fs, input_wav = input_wav
 		input_wav = input_wav.astype(np.float32) / np.iinfo(np.int16).max
@@ -173,9 +381,18 @@ def model_inference(input_wav, language, fs=16000):
 	print(text)
 	text = text[0]["text"]
 	text = format_str_v3(text)
-	
+
 	print(text)
-	
+
+	# Clean up extracted audio file after successful processing
+	if extracted_audio_path and os.path.exists(extracted_audio_path):
+		try:
+			print(f"[SPEECH RECOGNITION] Cleaning up temporary audio file: {extracted_audio_path}")
+			os.unlink(extracted_audio_path)
+			print(f"[SPEECH RECOGNITION] Temporary audio file deleted successfully")
+		except Exception as e:
+			print(f"[SPEECH RECOGNITION] Failed to delete temporary audio file: {e}")
+
 	return text
 
 
@@ -221,19 +438,58 @@ def launch():
 	with gr.Blocks(theme=gr.themes.Soft()) as demo:
 		# gr.Markdown(description)
 		gr.HTML(html_content)
-		with gr.Row():
-			with gr.Column():
-				audio_inputs = gr.Audio(label="Upload audio or use the microphone")
-				
-				with gr.Accordion("Configuration"):
-					language_inputs = gr.Dropdown(choices=["auto", "zh", "en", "yue", "ja", "ko", "nospeech"],
-												  value="auto",
-												  label="Language")
-				fn_button = gr.Button("Start", variant="primary")
-				text_outputs = gr.Textbox(label="Results")
-			gr.Examples(examples=audio_examples, inputs=[audio_inputs, language_inputs], examples_per_page=20)
-		
-		fn_button.click(model_inference, inputs=[audio_inputs, language_inputs], outputs=text_outputs)
+
+		with gr.Tabs():
+			with gr.Tab("Speech Recognition"):
+				with gr.Row():
+					with gr.Column():
+						audio_inputs = gr.Audio(label="Upload audio or use the microphone")
+
+						with gr.Accordion("Configuration"):
+							language_inputs = gr.Dropdown(choices=["auto", "zh", "en", "yue", "ja", "ko", "nospeech"],
+														  value="auto",
+														  label="Language")
+						fn_button = gr.Button("Start", variant="primary")
+						text_outputs = gr.Textbox(label="Results")
+					gr.Examples(examples=audio_examples, inputs=[audio_inputs, language_inputs], examples_per_page=20)
+
+				fn_button.click(model_inference, inputs=[audio_inputs, language_inputs], outputs=text_outputs)
+
+			with gr.Tab("Audio Extraction"):
+				with gr.Row():
+					with gr.Column():
+						gr.Markdown("### Extract Audio from Video")
+						gr.Markdown("Upload a video file to extract its audio track. You can specify a custom output directory or leave it blank to use the Downloads folder.")
+						gr.Markdown("**Supported formats:** MP4, AVI, MOV, MKV, FLV, WMV, WebM, M4V")
+
+						video_input = gr.File(
+							label="Upload Video File",
+							file_types=[".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".webm", ".m4v"]
+						)
+
+						with gr.Row():
+							output_directory = gr.Textbox(
+								label="Output Directory (Optional)",
+								placeholder="e.g., C:\\MyAudioFiles or D:\\Videos\\Audio (leave blank for Downloads folder)",
+								info="Enter the full path or use the Browse button. If left blank, files will be saved to your Downloads folder.",
+								scale=4
+							)
+							browse_folder_btn = gr.Button("Browse Folder", scale=1, variant="secondary")
+
+						extract_button = gr.Button("Extract Audio", variant="primary")
+
+						extraction_status = gr.Textbox(label="Status", interactive=False, lines=3)
+
+				browse_folder_btn.click(
+					browse_for_folder,
+					outputs=[output_directory]
+				)
+
+				extract_button.click(
+					extract_audio_only,
+					inputs=[video_input, output_directory],
+					outputs=[extraction_status]
+				)
 
 	demo.launch()
 
