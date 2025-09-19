@@ -39,14 +39,16 @@ Online Demo:
   - Possess excellent emotion recognition capabilities, achieving and surpassing the effectiveness of the current best emotion recognition models on test data.
   - Offer sound event detection capabilities, supporting the detection of various common human-computer interaction events such as bgm, applause, laughter, crying, coughing, and sneezing.
 - **Efficient Inference:** The SenseVoice-Small model utilizes a non-autoregressive end-to-end framework, leading to exceptionally low inference latency. It requires only 70ms to process 10 seconds of audio, which is 15 times faster than Whisper-Large.
+- **Enhanced WebUI:** User-friendly web interface with dedicated audio extraction capabilities, supporting video-to-audio conversion with custom output directories and automatic file management.
 - **Convenient Finetuning:** Provide convenient finetuning scripts and strategies, allowing users to easily address long-tail sample issues according to their business scenarios.
 - **Service Deployment:** Offer service deployment pipeline,  supporting multi-concurrent requests, with client-side languages including Python, C++, HTML, Java, and C#, among others.
 
 <a name="What's News"></a>
 # What's New 🔥
+- **2024/9: Enhanced WebUI with Audio Extraction**: Added dedicated Audio Extraction tab with video-to-audio conversion capabilities. Supports all major video formats (MP4, AVI, MOV, MKV, etc.) with user-selectable output directories and automatic cleanup of temporary files.
 - 2024/11: Add support for timestamp based on the CTC alignment.
 - 2024/7: Added Export Features for [ONNX](./demo_onnx.py) and [libtorch](./demo_libtorch.py), as well as Python Version Runtimes: [funasr-onnx-0.4.0](https://pypi.org/project/funasr-onnx/), [funasr-torch-0.1.1](https://pypi.org/project/funasr-torch/)
-- 2024/7: The [SenseVoice-Small](https://www.modelscope.cn/models/iic/SenseVoiceSmall) voice understanding model is open-sourced, which offers high-precision multilingual speech recognition, emotion recognition, and audio event detection capabilities for Mandarin, Cantonese, English, Japanese, and Korean and leads to exceptionally low inference latency.  
+- 2024/7: The [SenseVoice-Small](https://www.modelscope.cn/models/iic/SenseVoiceSmall) voice understanding model is open-sourced, which offers high-precision multilingual speech recognition, emotion recognition, and audio event detection capabilities for Mandarin, Cantonese, English, Japanese, and Korean and leads to exceptionally low inference latency.
 - 2024/7: The CosyVoice for natural speech generation with multi-language, timbre, and emotion control. CosyVoice excels in multi-lingual voice generation, zero-shot voice generation, cross-lingual voice cloning, and instruction-following capabilities. [CosyVoice repo](https://github.com/FunAudioLLM/CosyVoice) and [CosyVoice space](https://www.modelscope.cn/studios/iic/CosyVoice-300M).
 - 2024/7: [FunASR](https://github.com/modelscope/FunASR) is a fundamental speech recognition toolkit that offers a variety of features, including speech recognition (ASR), Voice Activity Detection (VAD), Punctuation Restoration, Language Models, Speaker Verification, Speaker Diarization and multi-talker ASR.
 
@@ -162,6 +164,48 @@ res = model.generate(
 ```
 
 For more usage, please refer to [docs](https://github.com/modelscope/FunASR/blob/main/docs/tutorial/README.md)
+
+## WebUI with Audio Extraction
+
+The enhanced WebUI provides both speech recognition and audio extraction capabilities through an intuitive web interface.
+
+### Launch WebUI
+```bash
+python webui.py
+```
+
+The WebUI includes two main tabs:
+
+#### 1. Speech Recognition Tab
+- **Audio/Video Input**: Upload audio files or record directly from microphone
+- **Video Support**: Automatically extracts audio from video files for transcription
+- **Language Selection**: Choose from Chinese, English, Cantonese, Japanese, Korean, or auto-detection
+- **Supported Formats**: All common audio formats (MP3, WAV, FLAC, etc.) and video formats (MP4, AVI, MOV, MKV, FLV, WMV, WebM, M4V)
+
+#### 2. Audio Extraction Tab
+Extract audio tracks from video files with advanced features:
+
+**Features:**
+- **Video Format Support**: MP4, AVI, MOV, MKV, FLV, WMV, WebM, M4V
+- **Custom Output Directory**:
+  - Type the path manually OR
+  - Click "Browse Folder" for visual folder selection
+  - Defaults to Downloads folder if not specified
+- **Automatic File Management**:
+  - Uses original video filename with `.wav` extension
+  - Handles filename conflicts automatically (`_1`, `_2`, etc.)
+  - Cleans up temporary files after processing
+- **High-Quality Output**: 16kHz mono WAV format optimized for speech recognition
+
+**Usage:**
+1. Upload a video file
+2. (Optional) Specify output directory or use folder browser
+3. Click "Extract Audio"
+4. Audio file saved to specified location with original filename
+
+**Requirements:**
+- FFmpeg must be installed and accessible in system PATH
+- Sufficient disk space for temporary processing
 
 ### Inference directly
 
