@@ -15,8 +15,8 @@ import numpy as np
 import torch
 import torchaudio
 
-
 from funasr import AutoModel
+from utils.srt_utils import create_srt_from_sensevoice_result, format_timestamp_srt
 
 model = "iic/SenseVoiceSmall"
 model = AutoModel(model=model,
@@ -302,7 +302,7 @@ def extract_audio_only(video_file, output_directory=""):
 			print(f"[AUDIO EXTRACTION TAB] Failed to delete temporary video file after error: {cleanup_error}")
 		return None, f"Error extracting audio: {str(e)}"
 
-def model_inference(input_wav, language, fs=16000):
+def model_inference(input_wav, language, enable_timestamps=False, generate_srt=False, srt_output_dir="", fs=16000):
 	# task_abbr = {"Speech Recognition": "ASR", "Rich Text Transcription": ("ASR", "AED", "SER")}
 	language_abbr = {"auto": "auto", "zh": "zh", "en": "en", "yue": "yue", "ja": "ja", "ko": "ko",
 					 "nospeech": "nospeech"}
@@ -371,18 +371,67 @@ def model_inference(input_wav, language, fs=16000):
 	
 	
 	merge_vad = True #False if selected_task == "ASR" else True
-	print(f"language: {language}, merge_vad: {merge_vad}")
-	text = model.generate(input=input_wav,
-						  cache={},
-						  language=language,
-						  use_itn=True,
-						  batch_size_s=60, merge_vad=merge_vad)
-	
-	print(text)
-	text = text[0]["text"]
-	text = format_str_v3(text)
+	print(f"language: {language}, merge_vad: {merge_vad}, timestamps: {enable_timestamps}")
 
-	print(text)
+	# Generate inference with optional timestamps
+	inference_params = {
+		"input": input_wav,
+		"cache": {},
+		"language": language,
+		"use_itn": True,
+		"batch_size_s": 60,
+		"merge_vad": merge_vad
+	}
+
+	# Add timestamp support if requested
+	if enable_timestamps:
+		inference_params["output_timestamp"] = True
+		print("[SPEECH RECOGNITION] Generating transcription with timestamps")
+
+	result = model.generate(**inference_params)
+	print(result)
+
+	# Extract text
+	text = result[0]["text"]
+	text = format_str_v3(text)
+	print(f"[SPEECH RECOGNITION] Transcription: {text}")
+
+	# Generate SRT file if requested
+	srt_status = ""
+	if generate_srt and enable_timestamps:
+		try:
+			# Determine output directory for SRT
+			if srt_output_dir and srt_output_dir.strip():
+				output_dir = srt_output_dir.strip()
+			else:
+				output_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+
+			# Ensure directory exists
+			if not os.path.exists(output_dir):
+				os.makedirs(output_dir)
+
+			# Generate SRT filename
+			import time
+			timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+			srt_filename = f"transcription_{timestamp_str}.srt"
+			srt_path = os.path.join(output_dir, srt_filename)
+
+			# Create SRT file
+			if create_srt_from_sensevoice_result(result, srt_path):
+				srt_status = f"\n\nSRT file saved to: {srt_path}"
+				print(f"[SPEECH RECOGNITION] SRT file created: {srt_path}")
+			else:
+				srt_status = "\n\nFailed to generate SRT file"
+				print("[SPEECH RECOGNITION] Failed to create SRT file")
+
+		except Exception as e:
+			srt_status = f"\n\nError generating SRT: {str(e)}"
+			print(f"[SPEECH RECOGNITION] SRT generation error: {e}")
+	elif generate_srt and not enable_timestamps:
+		srt_status = "\n\nNote: Enable timestamps to generate SRT files"
+
+	# Format final output
+	final_text = text + srt_status
 
 	# Clean up extracted audio file after successful processing
 	if extracted_audio_path and os.path.exists(extracted_audio_path):
@@ -393,7 +442,7 @@ def model_inference(input_wav, language, fs=16000):
 		except Exception as e:
 			print(f"[SPEECH RECOGNITION] Failed to delete temporary audio file: {e}")
 
-	return text
+	return final_text
 
 
 audio_examples = [
@@ -449,11 +498,41 @@ def launch():
 							language_inputs = gr.Dropdown(choices=["auto", "zh", "en", "yue", "ja", "ko", "nospeech"],
 														  value="auto",
 														  label="Language")
+
+							with gr.Row():
+								enable_timestamps = gr.Checkbox(
+									label="Generate Timestamps",
+									value=False,
+									info="Enable timestamp generation for time-aligned transcription"
+								)
+								generate_srt = gr.Checkbox(
+									label="Generate SRT Subtitles",
+									value=False,
+									info="Create SRT subtitle file (requires timestamps)"
+								)
+
+							srt_output_dir = gr.Textbox(
+								label="SRT Output Directory (Optional)",
+								placeholder="e.g., C:\\Subtitles (leave blank for Downloads folder)",
+								info="Directory where SRT files will be saved. Defaults to Downloads if empty.",
+								visible=False
+							)
+
 						fn_button = gr.Button("Start", variant="primary")
-						text_outputs = gr.Textbox(label="Results")
+						text_outputs = gr.Textbox(label="Results", lines=5)
 					gr.Examples(examples=audio_examples, inputs=[audio_inputs, language_inputs], examples_per_page=20)
 
-				fn_button.click(model_inference, inputs=[audio_inputs, language_inputs], outputs=text_outputs)
+				# Show/hide SRT directory input based on SRT checkbox
+				def toggle_srt_directory(generate_srt_enabled):
+					return gr.update(visible=generate_srt_enabled)
+
+				generate_srt.change(toggle_srt_directory, inputs=[generate_srt], outputs=[srt_output_dir])
+
+				fn_button.click(
+					model_inference,
+					inputs=[audio_inputs, language_inputs, enable_timestamps, generate_srt, srt_output_dir],
+					outputs=text_outputs
+				)
 
 			with gr.Tab("Audio Extraction"):
 				with gr.Row():
